@@ -35,6 +35,18 @@ export default function App() {
     }
   }
 
+  const toggleMic = () => {
+    const current = stream.audio
+    if (current) {
+      current.getTracks().forEach((i) => i.stop())
+      setStream((p) => ({ ...p, audio: null }))
+    } else {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then((audio) => {
+        setStream((p) => ({ ...p, audio }))
+      })
+    }
+  }
+
   const toggleScreen = () => {
     const current = stream.screen
     if (current) {
@@ -42,7 +54,13 @@ export default function App() {
       setStream((p) => ({ ...p, screen: null }))
     } else {
       navigator.mediaDevices
-        .getDisplayMedia({ video: { width: 720 } })
+        .getDisplayMedia({
+          video: {
+            frameRate: 60,
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+          },
+        })
         .then((s) => {
           setStream((p) => ({ ...p, screen: s }))
           screen.current!.srcObject = s
@@ -57,11 +75,13 @@ export default function App() {
     } else {
       if (!wrapper.current) return
       // создаем холст
-      const { width, height } = wrapper.current.getBoundingClientRect()
       const canvas = document.createElement('canvas')
+      const width = 1920
+      const height = 1080
       canvas.width = width
       canvas.height = height
       const ctx = canvas.getContext('2d')
+      if (!ctx) return
 
       const drawFrame = () => {
         // 1. Очищаем весь канвас (удаляем предыдущий кадр)
@@ -105,6 +125,13 @@ export default function App() {
       // Получаем поток
       const canvasStream = canvas.captureStream(30) // 30fps
 
+      const mainStream = new MediaStream()
+
+      canvasStream.getVideoTracks().forEach((t) => mainStream.addTrack(t))
+
+      if (stream.audio)
+        stream.audio.getAudioTracks().forEach((i) => mainStream.addTrack(i))
+
       // Теперь передадим в MediaRecorder
       const fileHandle = await window.showSaveFilePicker({
         suggestedName: 'recording.webm',
@@ -115,8 +142,9 @@ export default function App() {
 
       ws.current = await fileHandle.createWritable()
 
-      const r = new MediaRecorder(canvasStream, {
+      const r = new MediaRecorder(mainStream, {
         mimeType: 'video/webm',
+        videoBitsPerSecond: 8_000_000,
       })
 
       r.ondataavailable = async (e) => {
@@ -163,6 +191,11 @@ export default function App() {
           className={classNames('button', { activeBtn: !!stream.screen })}
           onClick={toggleScreen}>
           toggle screen
+        </button>
+        <button
+          className={classNames('button', { activeBtn: !!stream.audio })}
+          onClick={toggleMic}>
+          toggle mic
         </button>
         <button
           className={classNames('button', { activeBtn: !!record })}
