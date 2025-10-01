@@ -12,7 +12,11 @@ export default function App() {
   const ws = useRef<FileSystemWritableFileStream | null>(null)
 
   const [record, setRecord] = useState<MediaRecorder | null>(null)
-  const [stream, setStream] = useState<Stream>({
+  const [cameraEnabled, setCameraEnabled] = useState(false)
+  const [screenEnabled, setScreenEnabled] = useState(false)
+  const [micEnabled, setMicEnabled] = useState(false)
+
+  const stream = useRef<Stream>({
     audio: null,
     screen: null,
     video: null,
@@ -21,37 +25,42 @@ export default function App() {
   const wrapper = useRef<HTMLDivElement>(null)
 
   const toggleCamera = () => {
-    const current = stream.video
+    const current = stream.current.video
     if (current) {
       current.getTracks().forEach((i) => i.stop())
-      setStream((p) => ({ ...p, video: null }))
+      stream.current.video = null
+      setCameraEnabled(false)
     } else {
       navigator.mediaDevices
         .getUserMedia({ video: { width: 720 } })
         .then((video) => {
-          setStream((p) => ({ ...p, video }))
+          stream.current.video = video
           camera.current!.srcObject = video
+          setCameraEnabled(true)
         })
     }
   }
 
   const toggleMic = () => {
-    const current = stream.audio
+    const current = stream.current.audio
     if (current) {
       current.getTracks().forEach((i) => i.stop())
-      setStream((p) => ({ ...p, audio: null }))
+      stream.current.video = null
+      setMicEnabled(false)
     } else {
       navigator.mediaDevices.getUserMedia({ audio: true }).then((audio) => {
-        setStream((p) => ({ ...p, audio }))
+        stream.current.audio = audio
+        setMicEnabled(true)
       })
     }
   }
 
   const toggleScreen = () => {
-    const current = stream.screen
+    const current = stream.current.screen
     if (current) {
       current.getTracks().forEach((i) => i.stop())
-      setStream((p) => ({ ...p, screen: null }))
+      stream.current.screen = null
+      setScreenEnabled(false)
     } else {
       navigator.mediaDevices
         .getDisplayMedia({
@@ -62,8 +71,9 @@ export default function App() {
           },
         })
         .then((s) => {
-          setStream((p) => ({ ...p, screen: s }))
+          stream.current.screen = s
           screen.current!.srcObject = s
+          setScreenEnabled(true)
         })
     }
   }
@@ -88,8 +98,8 @@ export default function App() {
         ctx!.clearRect(0, 0, width, height)
 
         // Берём HTMLVideoElement из ref
-        const cam = stream.video
-        const scr = stream.screen
+        const cam = stream.current.video
+        const scr = stream.current.screen
 
         const camVideo = camera.current
         const scrVideo = screen.current
@@ -129,8 +139,10 @@ export default function App() {
 
       canvasStream.getVideoTracks().forEach((t) => mainStream.addTrack(t))
 
-      if (stream.audio)
-        stream.audio.getAudioTracks().forEach((i) => mainStream.addTrack(i))
+      if (stream.current.audio)
+        stream.current.audio
+          .getAudioTracks()
+          .forEach((i) => mainStream.addTrack(i))
 
       // Теперь передадим в MediaRecorder
       const fileHandle = await window.showSaveFilePicker({
@@ -167,15 +179,15 @@ export default function App() {
       <div ref={wrapper} className="videoWrapper">
         <video
           className={classNames('video', {
-            enabledVideo: !!stream.video,
-            videoMinimize: !!stream.screen,
+            enabledVideo: cameraEnabled,
+            videoMinimize: screenEnabled,
           })}
           ref={camera}
           autoPlay
           muted
         />
         <video
-          className={classNames('screen', { activeScreen: !!stream.screen })}
+          className={classNames('screen', { activeScreen: screenEnabled })}
           ref={screen}
           autoPlay
           muted
@@ -183,17 +195,17 @@ export default function App() {
       </div>
       <div className="control">
         <button
-          className={classNames('button', { activeBtn: !!stream.video })}
+          className={classNames('button', { activeBtn: cameraEnabled })}
           onClick={toggleCamera}>
           toggle camera
         </button>
         <button
-          className={classNames('button', { activeBtn: !!stream.screen })}
+          className={classNames('button', { activeBtn: screenEnabled })}
           onClick={toggleScreen}>
           toggle screen
         </button>
         <button
-          className={classNames('button', { activeBtn: !!stream.audio })}
+          className={classNames('button', { activeBtn: micEnabled })}
           onClick={toggleMic}>
           toggle mic
         </button>
