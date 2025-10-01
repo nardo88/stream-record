@@ -24,6 +24,12 @@ export default function App() {
 
   const wrapper = useRef<HTMLDivElement>(null)
 
+  // Для микширования аудио
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const destinationRef = useRef<MediaStreamAudioDestinationNode | null>(null)
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+  const silentSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
+
   const toggleCamera = () => {
     const current = stream.current.video
     if (current) {
@@ -42,15 +48,20 @@ export default function App() {
   }
 
   const toggleMic = () => {
-    const current = stream.current.audio
-    if (current) {
-      current.getTracks().forEach((i) => i.stop())
-      stream.current.video = null
+    if (micEnabled) {
+      stream.current.audio?.getTracks().forEach((t) => t.stop())
+      if (micSourceRef.current) micSourceRef.current.disconnect()
+      stream.current.audio = null
       setMicEnabled(false)
     } else {
       navigator.mediaDevices.getUserMedia({ audio: true }).then((audio) => {
         stream.current.audio = audio
         setMicEnabled(true)
+        if (audioContextRef.current && destinationRef.current) {
+          micSourceRef.current =
+            audioContextRef.current.createMediaStreamSource(audio)
+          micSourceRef.current.connect(destinationRef.current)
+        }
       })
     }
   }
@@ -84,6 +95,7 @@ export default function App() {
       setRecord(null)
     } else {
       if (!wrapper.current) return
+
       // создаем холст
       const canvas = document.createElement('canvas')
       const width = 1920
@@ -94,27 +106,23 @@ export default function App() {
       if (!ctx) return
 
       const drawFrame = () => {
-        // 1. Очищаем весь канвас (удаляем предыдущий кадр)
-        ctx!.clearRect(0, 0, width, height)
+        ctx.clearRect(0, 0, width, height)
 
-        // Берём HTMLVideoElement из ref
         const cam = stream.current.video
         const scr = stream.current.screen
 
         const camVideo = camera.current
         const scrVideo = screen.current
 
-        // 2. Если есть экран, рендерим его на задний план на весь холст
         if (scr && scrVideo) {
-          ctx!.drawImage(scrVideo, 0, 0, width, height)
+          ctx.drawImage(scrVideo, 0, 0, width, height)
         }
 
-        // 3. Если есть камера, рисуем её маленьким прямоугольником в углу
         if (cam && camVideo) {
           if (scr) {
-            const camWidth = width / 4 // 25% ширины
-            const camHeight = height / 4 // 25% высоты
-            ctx!.drawImage(
+            const camWidth = width / 4
+            const camHeight = height / 4
+            ctx.drawImage(
               camVideo,
               width - camWidth - 10,
               height - camHeight - 10,
@@ -122,29 +130,53 @@ export default function App() {
               camHeight
             )
           } else {
-            ctx!.drawImage(camVideo, 0, 0, width, height)
+            ctx.drawImage(camVideo, 0, 0, width, height)
           }
         }
 
-        // 4. Планируем следующее обновление кадра
         requestAnimationFrame(drawFrame)
       }
 
       drawFrame()
 
-      // Получаем поток
-      const canvasStream = canvas.captureStream(30) // 30fps
-
+      // получаем поток с canvas
+      const canvasStream = canvas.captureStream(30)
       const mainStream = new MediaStream()
-
       canvasStream.getVideoTracks().forEach((t) => mainStream.addTrack(t))
 
-      if (stream.current.audio)
-        stream.current.audio
-          .getAudioTracks()
-          .forEach((i) => mainStream.addTrack(i))
+      // Создаем AudioContext и silent track, если еще не создано
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioContext()
+        destinationRef.current =
+          audioContextRef.current.createMediaStreamDestination()
 
-      // Теперь передадим в MediaRecorder
+        // silent track
+        const oscillator = audioContextRef.current.createOscillator()
+        oscillator.type = 'square'
+        oscillator.frequency.value = 0
+        oscillator.start()
+        silentSourceRef.current = oscillator.connect(
+          destinationRef.current
+        ) as MediaStreamAudioSourceNode
+      }
+
+      // подключаем микрофон, если включен
+      if (
+        stream.current.audio &&
+        audioContextRef.current &&
+        destinationRef.current
+      ) {
+        micSourceRef.current = audioContextRef.current.createMediaStreamSource(
+          stream.current.audio
+        )
+        micSourceRef.current.connect(destinationRef.current)
+      }
+
+      // Добавляем аудио дорожку в mainStream
+      destinationRef.current?.stream
+        .getAudioTracks()
+        .forEach((t) => mainStream.addTrack(t))
+
       const fileHandle = await window.showSaveFilePicker({
         suggestedName: 'recording.webm',
         types: [
